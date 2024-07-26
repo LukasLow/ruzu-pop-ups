@@ -23,3 +23,9 @@ jobs:
           sed -i "s/<VERSION>/${{ steps.get_tag.outputs.VER }}/g" manifest.json
       - name: Package code
         run: cd ruzu_popups && zip -r ../ruzu_popups-${{ steps.get_tag.outputs.VER }}.ankiaddon *
+      - name: Upload addon
+          uses: actions/upload-artifact@v2
+          with:
+            name: ruzu_popups-${{ steps.get_tag.outputs.VER }}.ankiaddon
+            path: ruzu_popups-${{ steps.get_tag.outputs.VER }}.ankiaddon
+            if-no-files-found: error
