@@ -25,3 +25,4 @@ You can enable and configure the addon within the options menu:
 This addon currently supports basic cards and CSS.
 Cloze cards are not yet supported, your mileage may vary with advanced cards that use javascript or MathJax.
 
+
