@@ -1,6 +1,35 @@
 # Copyright 2020 Charles Henry
 import aqt
+import logging
+import os
+from logging.handlers import RotatingFileHandler
 
+def setup_logger():
+    # Pfad zur Log-Datei
+    log_file_path = '/Users/lukas/Library/Application Support/Anki2/addons21/ruzu_pop_ups/log.txt'
+    
+    # Erstelle das Verzeichnis, falls es nicht existiert
+    os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+    
+    # Konfiguriere den Logger
+    logger = logging.getLogger('AnkiLogger')
+    logger.setLevel(logging.DEBUG)
+    
+    # Entferne alle existierenden Handler, um doppelte Einträge zu vermeiden
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    
+    # Erstelle einen RotatingFileHandler mit UTF-8 Kodierung
+    handler = RotatingFileHandler(log_file_path, maxBytes=1024*1024*5, backupCount=5, encoding='utf-8')  # 5 MB pro Datei, bis zu 5 Backups
+    handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(filename)s - %(lineno)d - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    
+    return logger
+
+# Rufe setup_logger auf, um den Logger zu konfigurieren
+logger = setup_logger()
 
 class AnkiUtils:
 
@@ -43,17 +72,21 @@ class AnkiUtils:
 
     def show_question(self):
         if self.review_is_active():
-            self.reviewer()._showQuestion()
-            return True
+            card = self.reviewer().card
+            question_html = self.reviewer()._mungeQA(card.q())
+            logger.debug(f'Frage HTML: {question_html}')
+            return question_html
         else:
-            return False
+            return None
 
     def show_answer(self):
         if self.review_is_active():
-            self.main_window().reviewer._showAnswer()
-            return True
+            card = self.reviewer().card
+            answer_html = self.reviewer()._mungeQA(card.a())
+            logger.debug(f'Antwort HTML: {answer_html}')
+            return answer_html
         else:
-            return False
+            return None
 
     def answer_card(self, ease):
         if not self.review_is_active():
@@ -93,7 +126,7 @@ class AnkiUtils:
         if getattr(card, 'question', None) is None:
             question = card._getQA()['q']
         else:
-            question = card.question(),
+            question = card.question()
         return question
 
     def get_answer(self, card):
@@ -104,23 +137,63 @@ class AnkiUtils:
         return answer
 
     def get_current_card(self):
+        logger.debug('get_current_card: Überprüfe, ob Review aktiv ist...')
+        
         if not self.review_is_active():
+            logger.error('Review ist nicht aktiv. Keine Karte kann abgerufen werden.')
             raise Exception('There was an issue getting the current card because review is not currently active.')
-
+        
+        logger.debug('Review ist aktiv. Abhole Reviewer-Objekt...')
         reviewer = self.reviewer()
+        
+        if reviewer.card is None:
+            logger.error('Keine Karte gefunden. Das Reviewer-Objekt enthält keine Karte.')
+            raise Exception('No card found in the reviewer object.')
+        
         card = reviewer.card
         note_type = card.note_type()
+        
+        logger.debug(f'Karte gefunden: ID={card.id}')
+        logger.debug(f'Frage der Karte: {self.get_question(card)}')
+        
+        try:
+            # Frage und Antwort HTML richtig bearbeiten
+            question_html = self.show_question()  # Verwendung der Methode show_question
+            answer_html = self.show_answer()      # Verwendung der Methode show_answer
+            
+            # Falls es einen Platzhalter für typed answers gibt
+            if "{{type:" in question_html:
+                logger.debug("Typed answer field detected, processing...")
+                reviewer.typeAnsQuestion = card.q()
+                reviewer.typeAnsAnswer = card.a()
+                reviewer._showAnswer()  # Zeigt die Antwort mit dem Tippfeld an
+                
+                # Aktualisiere das gerenderte HTML der Frage
+                question_html = self.show_question()
+                
+                # Ersetze den Platzhalter für das Eingabefeld auf der Rückseite mit der Benutzereingabe
+                answer_html = self.show_answer()
+                if "{{type:" in answer_html:
+                    user_input = reviewer.typedText
+                    answer_html = answer_html.replace('{{type:}}', user_input)
 
-        if card is not None:
+            css = note_type['css']
             button_list = reviewer._answerButtonList()
+            
             response = {
                 'card_id': card.id,
-                'question': self.get_question(card)[0],  # TODO - Look into why a tuple is returned here...
-                'answer': self.get_answer(card),
-                'css': note_type['css'],
+                'question': question_html,
+                'answer': answer_html,
+                'css': css,
                 'button_list': button_list
             }
-
+            
+            logger.debug(f'Antwort-Objekt erstellt: {response}')
+            
+        except Exception as e:
+            logger.error(f'Fehler beim Abrufen der Karteninformationen: {str(e)}')
+            raise
+        
         return response
 
     def get_config(self):
